@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SANNPREMIUM - Layanan Aplikasi Premium Murah</title>
+  
+  <!-- Font Google & Icon FontAwesome -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-color: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-red: #ff0000;
+      --accent-green: #00e676;
+      --border-color: #334155;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header / Navbar */
+    header {
+      background: rgba(30, 41, 59, 0.8);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+    }
+
+    .navbar {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .logo span {
+      color: #38bdf8;
+    }
+
+    /* Hero Section */
+    .hero {
+      text-align: center;
+      padding: 3rem 1rem 2rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .hero h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+      background: linear-gradient(to right, #38bdf8, #818cf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+
+    /* Main Content / Product Grid */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1rem 4rem;
+      flex: 1;
+    }
+
+    .section-title {
+      font-size: 1.5rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    /* Product Card */
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+      border-color: #475569;
+    }
+
+    .card-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: rgba(56, 189, 248, 0.1);
+      color: #38bdf8;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border: 1px solid rgba(56, 189, 248, 0.2);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+    }
+
+    .icon-youtube {
+      background-color: rgba(255, 0, 0, 0.1);
+      color: var(--accent-red);
+    }
+
+    .icon-alight {
+      background-color: rgba(0, 230, 118, 0.1);
+      color: var(--accent-green);
+    }
+
+    .card-title h3 {
+      font-size: 1.2rem;
+      font-weight: 700;
+    }
+
+    .card-title p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .price-tag {
+      margin: 1.5rem 0;
+    }
+
+    .price-tag .amount {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .price-tag .unit {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .features-list {
+      list-style: none;
+      margin-bottom: 1.5rem;
+    }
+
+    .features-list li {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .features-list li i {
+      color: #38bdf8;
+      font-size: 0.8rem;
+    }
+
+    /* Order Button */
+    .btn-buy {
+      width: 100%;
+      padding: 0.8rem;
+      border-radius: 10px;
+      border: none;
+      background: linear-gradient(135deg, #25d366, #128c7e);
+      color: white;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: opacity 0.2s ease;
+      text-decoration: none;
+    }
+
+    .btn-buy:hover {
+      opacity: 0.9;
+    }
+
+    /* Footer */
+    footer {
+      background-color: var(--card-bg);
+      border-top: 1px solid var(--border-color);
+      text-align: center;
+      padding: 1.5rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="navbar">
+      <div class="logo">
+        <i class="fa-solid fa-crown" style="color: #f59e0b;"></i> SANN<span>PREMIUM</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <h1>Aplikasi Premium Murah & Terpercaya</h1>
+    <p>Nikmati fitur premium tanpa iklan dengan harga ramah kantong. Proses cepat dan garansi terjamin!</p>
+  </section>
+
+  <!-- Main Content -->
+  <main class="container">
+    <h2 class="section-title"><i class="fa-solid fa-fire" style="color: #f97316;"></i> Produk Pilihan</h2>
+    
+    <div class="grid">
+      
+      <!-- Card 1: YouTube Premium 1 Bulan -->
+      <div class="card">
+        <span class="card-badge">Best Seller</span>
+        <div>
+          <div class="card-header">
+            <div class="card-icon icon-youtube">
+              <i class="fa-brands fa-youtube"></i>
+            </div>
+            <div class="card-title">
+              <h3>YouTube Premium</h3>
+              <p>Individu / Plan Bawaan</p>
+            </div>
+          </div>
+          <div class="price-tag">
+            <span class="amount">Rp 5.000</span>
+            <span class="unit">/ 1 Bulan</span>
+          </div>
+          <ul class="features-list">
+            <li><i class="fa-solid fa-check"></i> Bebas Iklan Sepuasnya</li>
+            <li><i class="fa-solid fa-check"></i> Putar di Latar Belakang</li>
+            <li><i class="fa-solid fa-check"></i> Akses YouTube Music</li>
+            <li><i class="fa-solid fa-check"></i> Garansi Penuh</li>
+          </ul>
+        </div>
+        <a href="#" class="btn-buy" onclick="orderWA('YouTube Premium 1 Bulan', 'Rp 5.000')">
+          <i class="fa-brands fa-whatsapp"></i> Beli Sekarang
+        </a>
+      </div>
+
+      <!-- Card 2: YouTube Famhead 1 Bulan -->
+      <div class="card">
+        <span class="card-badge">Hemat</span>
+        <div>
+          <div class="card-header">
+            <div class="card-icon icon-youtube">
+              <i class="fa-brands fa-youtube"></i>
+            </div>
+            <div class="card-title">
+              <h3>YouTube Famhead</h3>
+              <p>Family Head / Admin Plan</p>
+            </div>
+          </div>
+          <div class="price-tag">
+            <span class="amount">Rp 15.000</span>
+            <span class="unit">/ 1 Bulan</span>
+          </div>
+          <ul class="features-list">
+            <li><i class="fa-solid fa-check"></i> Bisa Undang 5 Anggota</li>
+            <li><i class="fa-solid fa-check"></i> Bebas Iklan & YT Music</li>
+            <li><i class="fa-solid fa-check"></i> Kontrol Penuh Akun Keluarga</li>
+            <li><i class="fa-solid fa-check"></i> Garansi Penuh</li>
+          </ul>
+        </div>
+        <a href="#" class="btn-buy" onclick="orderWA('YouTube Famhead 1 Bulan', 'Rp 15.000')">
+          <i class="fa-brands fa-whatsapp"></i> Beli Sekarang
+        </a>
+      </div>
+
+      <!-- Card 3: Alight Motion 1 Tahun -->
+      <div class="card">
+        <span class="card-badge">Super Pro</span>
+        <div>
+          <div class="card-header">
+            <div class="card-icon icon-alight">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+            </div>
+            <div class="card-title">
+              <h3>Alight Motion</h3>
+              <p>Account Premium Pro</p>
+            </div>
+          </div>
+          <div class="price-tag">
+            <span class="amount">Rp 5.000</span>
+            <span class="unit">/ 1 Tahun</span>
+          </div>
+          <ul class="features-list">
+            <li><i class="fa-solid fa-check"></i> Tanpa Watermark</li>
+            <li><i class="fa-solid fa-check"></i> Buka Semua Efek Pro</li>
+            <li><i class="fa-solid fa-check"></i> Support Preset XML / Link</li>
+            <li><i class="fa-solid fa-check"></i> Masa Aktif 1 Tahun</li>
+          </ul>
+        </div>
+        <a href="#" class="btn-buy" onclick="orderWA('Alight Motion Premium 1 Tahun', 'Rp 5.000')">
+          <i class="fa-brands fa-whatsapp"></i> Beli Sekarang
+        </a>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <p>&copy; 2026 <strong>SANNPREMIUM</strong>. All rights reserved.</p>
+  </footer>
+
+  <!-- Script untuk Pengiriman Pesan ke WhatsApp -->
+  <script>
+    function orderWA(productName, price) {
+      // GANTI NOMOR DI BAWAH DENGAN NOMOR WHATSAPP KAMU (Gunakan format 62)
+      const nomorWA = "6281398803306"; 
+
+      const pesan = `Halo Min, saya mau beli aplikasi premium di *SANNPREMIUM*:\n\n` +
+                    `📌 *Produk:* ${productName}\n` +
+                    `💰 *Harga:* ${price}\n\n` +
+                    `Mohon diproses ya!`;
+
+      const url = `https://wa.me/6281398803306?text=${encodeURIComponent(pesan)}`;
+      window.open(url, '_blank');
+    }
+  </script>
+
+</body>
+</html>
