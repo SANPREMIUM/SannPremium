@@ -737,24 +737,30 @@ async function fsSendMessage(otherUser, text){
 }
 /* Tandai sebuah percakapan sudah dibaca oleh user yang sedang login.
    Disimpan sebagai map lastRead.<username> = timestamp di dokumen chat.
-   PENTING: selalu ikut sertakan participants/participantsLower juga —
-   supaya kalau dokumen chat ini belum pernah ada (obrolan baru), dokumen
-   yang otomatis terbuat di sini tetap lengkap datanya. Kalau tidak,
-   dokumen chat "kosong" ini akan menolak percobaan kirim pesan pertama
-   (rules Firestore butuh field participantsLower untuk mengizinkan update). */
+   Pakai update() dengan dot-path (bukan set+merge) karena itu satu-satunya
+   cara yang benar-benar dijamin Firestore untuk menulis 1 key di dalam map
+   bersarang tanpa menghapus key user lain di map yang sama. Kalau dokumennya
+   belum ada (chat baru), update() akan gagal — baru di situ fallback ke
+   set() dengan data lengkap (participants ikut disertakan) untuk membuat
+   dokumennya dari awal. */
 async function markChatRead(chatId, otherUser){
   const me = currentUsername();
   if(!me || !chatId) return;
+  const ref = db.collection('chats').doc(chatId);
   try{
-    const payload = {
+    await ref.update({
       ['lastRead.'+me]: firebase.firestore.FieldValue.serverTimestamp()
-    };
-    if(otherUser){
-      payload.participants = [me, otherUser].sort();
-      payload.participantsLower = [me, otherUser].map(u=>u.toLowerCase()).sort();
-    }
-    await db.collection('chats').doc(chatId).set(payload, {merge:true});
-  }catch(e){ console.error('Gagal menandai chat dibaca:', e); }
+    });
+  }catch(e){
+    try{
+      const payload = { lastRead: { [me]: firebase.firestore.FieldValue.serverTimestamp() } };
+      if(otherUser){
+        payload.participants = [me, otherUser].sort();
+        payload.participantsLower = [me, otherUser].map(u=>u.toLowerCase()).sort();
+      }
+      await ref.set(payload, {merge:true});
+    }catch(e2){ console.error('Gagal menandai chat dibaca:', e2); }
+  }
 }
 
 /* ---------- badge notif chat di topbar ---------- */
