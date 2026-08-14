@@ -46,7 +46,8 @@ button{font-family:inherit;}
   padding:14px 16px calc(10px + env(safe-area-inset-top)/2); padding-top:calc(14px + env(safe-area-inset-top));
   background:linear-gradient(180deg,var(--bg) 70%,transparent); backdrop-filter:blur(6px);
 }
-#topbar .icon-btn{width:38px;height:38px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;color:var(--text);cursor:pointer;}
+#topbar .icon-btn{position:relative;width:38px;height:38px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;color:var(--text);cursor:pointer;}
+#topbar .badge-dot{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:var(--bad);color:#fff;font-size:10px;font-weight:800;line-height:16px;text-align:center;box-shadow:0 0 0 2px var(--bg);font-family:var(--font-body);}
 #topbar .brand{font-family:var(--font-display);font-weight:800;font-size:17px;flex:1;letter-spacing:.2px;display:flex;align-items:center;gap:6px;cursor:pointer;}
 #topbar .brand small{font-size:10px;font-weight:600;color:var(--accent);background:rgba(242,165,65,.12);padding:2px 6px;border-radius:6px;}
 
@@ -389,6 +390,7 @@ input[type=color]{width:100%;height:44px;border-radius:12px;border:1px solid var
   <div id="topbar">
     <div class="icon-btn" onclick="openMenu()">☰</div>
     <div class="brand" onclick="nav('home')">🧰 SANN <small id="lvlBadge">Lv1</small></div>
+    <div class="icon-btn" onclick="nav('inbox')" id="chatIconBtn">💬<span class="badge-dot" id="chatBadge" style="display:none;">0</span></div>
     <div class="icon-btn" onclick="nav('search')">🔍</div>
     <div class="icon-btn" onclick="toggleTheme()" id="themeBtn">🌙</div>
   </div>
@@ -649,7 +651,29 @@ async function fsCountUsers(){
   try{
     const snap = await db.collection('users').get();
     return snap.size;
-  }catch(e){ return 0; }
+  }catch(e){
+    console.error('Gagal hitung users (kemungkinan Firestore rules memblokir list sebelum login):', e);
+    return 0;
+  }
+}
+/* Counter publik jumlah pengguna, dibaca di layar login SEBELUM user login.
+   Tidak mengandalkan list() koleksi 'users' (yang biasanya diblokir rules
+   untuk visitor yang belum auth) — cukup baca 1 dokumen counter. */
+async function fsGetPublicUserCount(){
+  try{
+    const snap = await db.collection('stats').doc('public').get();
+    return snap.exists ? (snap.data().userCount || 0) : 0;
+  }catch(e){
+    console.error('Gagal baca counter publik jumlah pengguna:', e);
+    return 0;
+  }
+}
+async function fsIncrementPublicUserCount(){
+  try{
+    await db.collection('stats').doc('public').set({
+      userCount: firebase.firestore.FieldValue.increment(1)
+    }, {merge:true});
+  }catch(e){ console.error('Gagal update counter publik jumlah pengguna:', e); }
 }
 async function fsIncrementGamePlay(username, gameId){
   if(!username) return;
@@ -693,13 +717,14 @@ function stopPresence(){
   document.removeEventListener('visibilitychange', onVisibilityChangePresence);
   window.removeEventListener('focus', fsHeartbeat);
 }
-function chatIdFor(a,b){ return [a,b].sort().join('__'); }
+function chatIdFor(a,b){ return [a,b].map(x=>x.toLowerCase()).sort().join('__'); }
 async function fsSendMessage(otherUser, text){
   const me = currentUsername();
   if(!me || !otherUser || me===otherUser || !text.trim()) return;
   const chatId = chatIdFor(me, otherUser);
   await db.collection('chats').doc(chatId).set({
     participants: [me, otherUser].sort(),
+    participantsLower: [me, otherUser].map(u=>u.toLowerCase()).sort(),
     lastText: text.slice(0,120),
     lastFrom: me,
     lastTs: firebase.firestore.FieldValue.serverTimestamp()
@@ -709,6 +734,70 @@ async function fsSendMessage(otherUser, text){
     text: text.slice(0,1000),
     ts: firebase.firestore.FieldValue.serverTimestamp()
   });
+}
+/* Tandai sebuah percakapan sudah dibaca oleh user yang sedang login.
+   Disimpan sebagai map lastRead.<username> = timestamp di dokumen chat.
+   PENTING: selalu ikut sertakan participants/participantsLower juga —
+   supaya kalau dokumen chat ini belum pernah ada (obrolan baru), dokumen
+   yang otomatis terbuat di sini tetap lengkap datanya. Kalau tidak,
+   dokumen chat "kosong" ini akan menolak percobaan kirim pesan pertama
+   (rules Firestore butuh field participantsLower untuk mengizinkan update). */
+async function markChatRead(chatId, otherUser){
+  const me = currentUsername();
+  if(!me || !chatId) return;
+  try{
+    const payload = {
+      ['lastRead.'+me]: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    if(otherUser){
+      payload.participants = [me, otherUser].sort();
+      payload.participantsLower = [me, otherUser].map(u=>u.toLowerCase()).sort();
+    }
+    await db.collection('chats').doc(chatId).set(payload, {merge:true});
+  }catch(e){ console.error('Gagal menandai chat dibaca:', e); }
+}
+
+/* ---------- badge notif chat di topbar ---------- */
+let _chatBadgeUnsub = null;
+function stopChatBadgeListener(){ if(_chatBadgeUnsub){ _chatBadgeUnsub(); _chatBadgeUnsub=null; } }
+function startChatBadgeListener(){
+  stopChatBadgeListener();
+  const me = currentUsername();
+  if(!me) return;
+  _chatBadgeUnsub = db.collection('chats').where('participantsLower','array-contains', me.toLowerCase())
+    .onSnapshot(snap=>{
+      let unreadChats = 0;
+      snap.docs.forEach(d=>{
+        const c = d.data();
+        if(!c.lastFrom || c.lastFrom.toLowerCase()===me.toLowerCase()) return; // pesan terakhir dari diri sendiri
+        const myRead = c.lastRead && c.lastRead[me];
+        const readMs = (myRead && typeof myRead.toMillis==='function') ? myRead.toMillis() : 0;
+        const lastMs = (c.lastTs && typeof c.lastTs.toMillis==='function') ? c.lastTs.toMillis() : 1;
+        if(lastMs > readMs) unreadChats++;
+      });
+      updateChatBadge(unreadChats);
+    }, err=>{ console.error('Gagal memuat notif chat:', err); });
+}
+function updateChatBadge(n){
+  const el = document.getElementById('chatBadge');
+  if(!el) return;
+  if(n>0){ el.textContent = n>9?'9+':String(n); el.style.display='block'; }
+  else { el.style.display='none'; }
+}
+
+/* ---------- status "sedang main" (nowPlaying) ---------- */
+let _lastNowPlaying = undefined;
+async function fsSetNowPlaying(name){
+  const me = currentUsername();
+  if(!me) return;
+  if(_lastNowPlaying === (name||null)) return; // hindari tulis berulang
+  _lastNowPlaying = name || null;
+  try{
+    await db.collection('users').doc(me).update({
+      nowPlaying: name ? name : firebase.firestore.FieldValue.delete(),
+      nowPlayingTs: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }catch(e){ console.error('Gagal update status main:', e); }
 }
 
 let gateView = 'welcome';
@@ -723,8 +812,11 @@ function initAuthGate(){
     if(user && savedUser){
       overlay.style.display = 'none';
       startPresence();
+      startChatBadgeListener();
     } else {
       stopPresence();
+      stopChatBadgeListener();
+      updateChatBadge(0);
       sessionStorage.removeItem('sann_session_user');
       sessionStorage.removeItem('sann_session_admin');
       gateView = 'welcome';
@@ -742,7 +834,7 @@ async function drawGate(msg){
     box.innerHTML = `
       <div class="gate-title">SELAMAT DATANG<br>DI SANN TOOLS</div>
       <div class="gate-stats">
-        <div class="gs-item"><b id="gateUserCount">...</b><span>Pengguna Terdaftar</span></div>
+        <div class="gs-item"><b id="gateUserCount">...</b><span>Jumlah Pengguna</span></div>
         <div class="gs-item"><b>${totalTools}</b><span>Tools Tersedia</span></div>
       </div>
       <div class="gate-btn-row">
@@ -751,7 +843,7 @@ async function drawGate(msg){
       </div>
       <div class="gate-note">Jika tidak punya akun, silahkan daftar dulu.<br>Akun tersimpan di cloud (multi-perangkat).</div>
     `;
-    fsCountUsers().then(n=>{
+    fsGetPublicUserCount().then(n=>{
       const el = document.getElementById('gateUserCount');
       if(el) el.textContent = n;
     });
@@ -861,6 +953,7 @@ async function doRegister(){
     await auth.createUserWithEmailAndPassword(usernameToPseudoEmail(u), pw);
     const existingXP = getProfile().xp || 0;
     await fsCreateUser(u, existingXP);
+    fsIncrementPublicUserCount(); // nambahin counter publik, tidak perlu ditunggu
     sessionStorage.setItem('sann_session_user', u);
     toast('Akun berhasil dibuat! Selamat datang, '+u+' 🎉');
     enterApp();
@@ -881,11 +974,15 @@ async function doRegister(){
 function enterApp(){
   document.getElementById('gateOverlay').style.display = 'none';
   startPresence();
+  startChatBadgeListener();
   render();
 }
 
 function logout(){
   stopPresence();
+  stopChatBadgeListener();
+  updateChatBadge(0);
+  _lastNowPlaying = undefined;
   sessionStorage.removeItem('sann_session_user');
   sessionStorage.removeItem('sann_session_admin');
   auth.signOut().finally(()=>location.reload());
@@ -909,8 +1006,8 @@ function renderHubungiAdmin(){
     <div class="card" style="text-align:center;">
       <div style="font-size:40px;">🛠️</div>
       <div style="font-size:18px;font-weight:800;margin-top:6px;">Admin : Sandrian</div>
-      <div style="font-size:13px;color:var(--muted);margin-top:2px;">WhatsApp : wa.me/6281398803306</div>
-      <a href="https://wa.me/6281398803306" target="_blank" rel="noopener" class="btn" style="margin-top:14px;display:inline-block;text-decoration:none;">💬 Chat via WhatsApp</a>
+      <div style="font-size:13px;color:var(--muted);margin-top:2px;">WhatsApp : wa.me/628139883306</div>
+      <a href="https://wa.me/628139883306" target="_blank" rel="noopener" class="btn" style="margin-top:14px;display:inline-block;text-decoration:none;">💬 Chat via WhatsApp</a>
     </div>
   `;
 }
@@ -937,7 +1034,7 @@ function loadLeaderboard(){
             const online = isUserOnline(r);
             return `<div class="li-row clickable" onclick="nav('user-${encodeURIComponent(r.u)}')">
               <span class="status-dot ${online?'online':''}" title="${online?'Online':'Offline'}"></span>
-              <div class="li-tx">${i===0 && (r.score||0)>0?'🏆 ':''}${escapeHtml(r.u)}${online?' <span class="status-text online">· main</span>':''}</div>
+              <div class="li-tx">${i===0 && (r.score||0)>0?'🏆 ':''}${escapeHtml(r.u)}${online?(' <span class="status-text online">· '+(r.nowPlaying?('main '+escapeHtml(r.nowPlaying)):'online')+'</span>'):''}</div>
               <b style="color:var(--accent)">${r.score||0}</b><span style="color:var(--muted);">›</span></div>`;
           }).join('') : `<div class="empty-state"><span class="em">🏆</span>Belum ada user terdaftar.</div>`}
         </div>
@@ -999,11 +1096,14 @@ function renderUserProfileBody(username, rec){
     if(!online && rec.lastActive && typeof rec.lastActive.toDate === 'function'){
       lastSeenTxt = 'Terakhir aktif ' + rec.lastActive.toDate().toLocaleString('id-ID',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'});
     }
+    const statusTxt = online
+      ? (rec.nowPlaying ? ('🟢 Online · sedang main ' + escapeHtml(rec.nowPlaying)) : '🟢 Online')
+      : (lastSeenTxt || 'Offline');
     body.innerHTML = `
       <div class="card" style="text-align:center;">
         <div class="profile-avatar">${escapeHtml(initial)}<span class="status-dot ${online?'online':''}"></span></div>
         <div style="font-size:18px;font-weight:800;">${escapeHtml(username)}</div>
-        <div class="status-text ${online?'online':''}" style="justify-content:center;margin-top:4px;">${online? '🟢 Online · sedang main' : (lastSeenTxt||'Offline')}</div>
+        <div class="status-text ${online?'online':''}" style="justify-content:center;margin-top:4px;">${statusTxt}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;">${isMe? 'Ini kamu' : 'Pengguna SANN Toolbox'}</div>
       </div>
       <div class="stat-row">
@@ -1046,6 +1146,33 @@ function renderChatWrap(username){
     </div>
   `;
 }
+let _chatDocUnsub = null;
+let _chatMsgsCache = [];
+let _chatDocCache = null;
+let _chatMeUser = null;
+let _chatOtherUser = null;
+function renderChatMsgsToDom(){
+  const el = document.getElementById('chatMsgs');
+  if(!el) return;
+  const msgs = _chatMsgsCache;
+  if(!msgs.length){
+    el.innerHTML = `<div class="empty-state"><span class="em">💬</span>Belum ada pesan. Mulai percakapan!</div>`;
+    return;
+  }
+  const me = _chatMeUser;
+  const otherRead = _chatDocCache && _chatDocCache.lastRead && _chatDocCache.lastRead[_chatOtherUser];
+  const otherReadMs = (otherRead && typeof otherRead.toMillis==='function') ? otherRead.toMillis() : 0;
+  let lastMineIdx = -1;
+  msgs.forEach((m,i)=>{ if(m.from===me) lastMineIdx = i; });
+  el.innerHTML = msgs.map((m,i)=>{
+    const mine = m.from===me;
+    const time = (m.ts && typeof m.ts.toDate==='function') ? m.ts.toDate().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) : '';
+    const msgMs = (m.ts && typeof m.ts.toMillis==='function') ? m.ts.toMillis() : 0;
+    const showSeen = mine && i===lastMineIdx && otherReadMs>0 && msgMs>0 && otherReadMs>=msgMs;
+    return `<div class="chat-bubble ${mine?'me':'them'}">${escapeHtml(m.text)}<div class="t">${time}${showSeen?' · Dilihat':''}</div></div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
 function loadChatThread(otherUser){
   stopChatListener();
   const me = currentUsername();
@@ -1055,22 +1182,26 @@ function loadChatThread(otherUser){
   const sendBtn = document.getElementById('chatSendBtn');
   if(!msgsEl || !inputEl || !sendBtn) return;
   const chatId = chatIdFor(me, otherUser);
+  _chatMsgsCache = [];
+  _chatDocCache = null;
+  _chatMeUser = me;
+  _chatOtherUser = otherUser;
   _chatUnsub = db.collection('chats').doc(chatId).collection('messages').orderBy('ts','asc').limit(200)
     .onSnapshot(snap=>{
-      const el = document.getElementById('chatMsgs');
-      if(!el) return;
-      const msgs = snap.docs.map(d=>d.data());
-      el.innerHTML = msgs.length ? msgs.map(m=>{
-        const mine = m.from===me;
-        const time = (m.ts && typeof m.ts.toDate==='function') ? m.ts.toDate().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) : '';
-        return `<div class="chat-bubble ${mine?'me':'them'}">${escapeHtml(m.text)}<div class="t">${time}</div></div>`;
-      }).join('') : `<div class="empty-state"><span class="em">💬</span>Belum ada pesan. Mulai percakapan!</div>`;
-      el.scrollTop = el.scrollHeight;
+      _chatMsgsCache = snap.docs.map(d=>d.data());
+      renderChatMsgsToDom();
+      markChatRead(chatId, otherUser); // pesan masuk yang sedang dilihat langsung ditandai dibaca
     }, err=>{
       console.error(err);
       const el = document.getElementById('chatMsgs');
       if(el) el.innerHTML = `<div class="empty-state"><span class="em">⚠️</span>Gagal memuat pesan.<br><small>Cek koneksi internet / rules Firestore.</small></div>`;
     });
+  _chatDocUnsub = db.collection('chats').doc(chatId)
+    .onSnapshot(snap=>{
+      _chatDocCache = snap.exists ? snap.data() : null;
+      renderChatMsgsToDom();
+    }, err=>{ console.error(err); });
+  markChatRead(chatId, otherUser);
   async function send(){
     const text = inputEl.value.trim();
     if(!text) return;
@@ -1111,7 +1242,7 @@ async function loadInbox(){
     return;
   }
   try{
-    const snap = await db.collection('chats').where('participants','array-contains', me).get();
+    const snap = await db.collection('chats').where('participantsLower','array-contains', me.toLowerCase()).get();
     let rows = snap.docs.map(d=>d.data());
     rows.sort((a,b)=>{
       const ta = (a.lastTs && typeof a.lastTs.toMillis==='function') ? a.lastTs.toMillis() : 0;
@@ -1119,7 +1250,7 @@ async function loadInbox(){
       return tb-ta;
     });
     body.innerHTML = rows.length ? `<div class="tool-list">${rows.map(r=>{
-      const other = (r.participants||[]).find(u=>u!==me) || '?';
+      const other = (r.participants||[]).find(u=>u.toLowerCase()!==me.toLowerCase()) || '?';
       const preview = r.lastFrom===me ? 'Kamu: '+ (r.lastText||'') : (r.lastText||'');
       return `<div class="li-row clickable" onclick="nav('chat-${encodeURIComponent(other)}')"><span style="font-size:19px;width:26px;text-align:center;flex-shrink:0;">💬</span><div class="li-tx"><b>${escapeHtml(other)}</b><div style="font-size:11px;color:var(--muted);margin-top:1px;">${escapeHtml(preview)}</div></div><span style="color:var(--muted);">›</span></div>`;
     }).join('')}</div>` : `<div class="empty-state"><span class="em">💬</span>Belum ada percakapan.<br><small>Chat dari halaman profil pengguna lain di Papan Skor.</small></div>`;
@@ -1140,9 +1271,28 @@ function renderAdminPanel(){
       <div class="s"><b id="apToday">...</b><span>Daftar Hari Ini</span></div>
       <div class="s"><b>${allTools().length}</b><span>Total Tools</span></div>
     </div>
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+      <div><b>🔄 Sinkron Jumlah Pengguna</b><div style="font-size:11px;color:var(--muted);">Update angka "Jumlah Pengguna" di layar login supaya sesuai total user asli sekarang.</div></div>
+      <button class="btn sm" id="apSyncBtn" onclick="syncPublicUserCount()" style="flex-shrink:0;">Sinkron</button>
+    </div>
     <div class="section-label">Semua Pengguna Terdaftar</div>
     <div id="apList"><div class="result-box"><div class="lbl">Memuat data...</div></div></div>
   `;
+}
+
+async function syncPublicUserCount(){
+  const btn = document.getElementById('apSyncBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '...'; }
+  try{
+    const total = await fsCountUsers();
+    await db.collection('stats').doc('public').set({ userCount: total });
+    toast('Berhasil! Jumlah Pengguna disinkronkan: '+total);
+  }catch(e){
+    console.error(e);
+    toast('Gagal sinkron, cek koneksi / rules Firestore');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = 'Sinkron'; }
+  }
 }
 
 async function loadAdminPanel(){
@@ -1159,7 +1309,8 @@ async function loadAdminPanel(){
     listEl.innerHTML = rows.length
       ? `<div class="tool-list">${rows.map(d=>{
           const online = isUserOnline(d);
-          return `<div class="li-row"><span class="status-dot ${online?'online':''}"></span><div class="li-tx">${d.u}${online?' <span class="status-text online">· online</span>':''}<br><span style="color:var(--muted);font-size:10.5px;">daftar ${d.createdAt||'-'}</span></div><b style="color:var(--accent)">${d.score||0}</b></div>`;
+          const statusSpan = online ? (' <span class="status-text online">· '+(d.nowPlaying?('main '+escapeHtml(d.nowPlaying)):'online')+'</span>') : '';
+          return `<div class="li-row clickable" onclick="nav('user-${encodeURIComponent(d.u)}')"><span class="status-dot ${online?'online':''}"></span><div class="li-tx">${escapeHtml(d.u)}${statusSpan}<br><span style="color:var(--muted);font-size:10.5px;">daftar ${d.createdAt||'-'}</span></div><b style="color:var(--accent)">${d.score||0}</b></div>`;
         }).join('')}</div>`
       : `<div class="empty-state">Belum ada user.</div>`;
   }catch(e){
@@ -1311,7 +1462,10 @@ function findCat(id){ return CATS.find(c=>c.id===id); }
    ============================================================ */
 let currentPage = 'home';
 let _chatUnsub = null;
-function stopChatListener(){ if(_chatUnsub){ _chatUnsub(); _chatUnsub=null; } }
+function stopChatListener(){
+  if(_chatUnsub){ _chatUnsub(); _chatUnsub=null; }
+  if(_chatDocUnsub){ _chatDocUnsub(); _chatDocUnsub=null; }
+}
 function nav(page){
   currentPage = page;
   location.hash = page;
@@ -1448,10 +1602,10 @@ function renderProfil(){
       <div style="font-size:16px;font-weight:800;margin-top:2px;">${isAdminSession()? '🛠️ Admin (Sandrian)' : (currentUsername()||'-')}</div>
       <button class="btn secondary sm" style="margin-top:10px;" onclick="logout()">Keluar / Logout</button>
     </div>
-    ${!isAdminSession() ? `<div class="card" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="nav('inbox')">
-      <div><b>💬 Pesan</b><div style="font-size:11px;color:var(--muted);">Chat dengan pengguna lain</div></div>
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="nav('inbox')">
+      <div><b>💬 Pesan</b><div style="font-size:11px;color:var(--muted);">${isAdminSession()?'Chat dengan pengguna':'Chat dengan pengguna lain'}</div></div>
       <div style="font-size:18px;color:var(--muted);">›</div>
-    </div>` : ''}
+    </div>
     <div class="card" style="text-align:center;">
       <div style="font-size:40px;">🏆</div>
       <div style="font-size:20px;font-weight:800;margin-top:4px;">Level ${lv.level}</div>
@@ -1537,10 +1691,14 @@ function afterRender(){
   if(!currentPage.startsWith('user-')) stopUserProfileListener();
   if(currentPage.startsWith('tool-')){
     const id = currentPage.replace('tool-','');
+    const t = findTool(id);
+    fsSetNowPlaying(t && t.cat==='game' ? t.nm : null);
     const fn = TOOL_RENDERERS[id];
     const body = document.getElementById('toolBody');
     if(fn && body) fn(body);
     else if(body) body.innerHTML = `<div class="empty-state"><span class="em">🚧</span>Tools ini belum tersedia</div>`;
+  } else {
+    fsSetNowPlaying(null);
   }
   if(currentPage === 'search'){
     const inp = document.getElementById('searchInput');
